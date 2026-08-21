@@ -1,0 +1,6 @@
+{
+  "name": "VERIFAI",
+  "description": "AI Identity & Document Screening Command Center with biometric verification, OCR extraction, tampering detection, and audit traceability.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
