@@ -8,8 +8,10 @@ class FakeQuery:
         self.table_name = table
         self.store = store
         self.payload = None
+        self.is_select = False
 
     def select(self, _columns):
+        self.is_select = True
         return self
 
     def eq(self, _column, _value):
@@ -30,19 +32,22 @@ class FakeQuery:
         return self
 
     def execute(self):
-        if self.table_name == "documents" and self.payload is None:
+        if self.table_name == "documents" and self.is_select:
             return SimpleNamespace(data=[self.store["document"]])
         if self.payload is not None:
             self.store["writes"].append((self.table_name, self.payload))
-            if self.table_name == "risk_assessments":
-                self.store["risk"] = self.payload
             return SimpleNamespace(data=[self.payload])
         return SimpleNamespace(data=[])
 
 
-class FakeStorage:
+class FakeStorageBucket:
     def download(self, _path):
         return b"document-bytes"
+
+
+class FakeStorageManager:
+    def from_(self, _bucket):
+        return FakeStorageBucket()
 
 
 class FakeSupabase:
@@ -56,15 +61,11 @@ class FakeSupabase:
                 "mime_type": "image/jpeg",
             },
             "writes": [],
-            "risk": None,
         }
-        self.storage = FakeStorage()
+        self.storage = FakeStorageManager()
 
     def table(self, name):
         return FakeQuery(name, self.store)
-
-    def storage(self):
-        return self.storage
 
 
 def test_pipeline_runs_all_stages_in_order(monkeypatch):
