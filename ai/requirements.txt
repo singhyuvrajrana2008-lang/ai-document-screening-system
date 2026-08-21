@@ -5,6 +5,9 @@ pytesseract>=0.3.13,<0.4
 # Face detection is optional at import time; install for face verification.
 opencv-python-headless>=4.10,<5
 
+# Test runner
+pytest>=8,<9
+
 # Optional face embedding backend. Install only if the deployment environment
 # can support its transitive dependencies/model downloads.
 # deepface>=0.0.93,<0.1
