@@ -1,4 +1,7 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace(/\/$/, '');
+const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '');
+const AUTH_EMAIL_SUFFIX = String(import.meta.env.VITE_SUPABASE_AUTH_EMAIL_SUFFIX || '@verifai.local');
 
 export interface ApiErrorShape {
   code?: string;
@@ -26,6 +29,44 @@ function getToken(): string | null {
   return localStorage.getItem('verifai_access_token');
 }
 
+function setSession(accessToken: string, refreshToken?: string) {
+  localStorage.setItem('verifai_access_token', accessToken);
+  if (refreshToken) localStorage.setItem('verifai_refresh_token', refreshToken);
+}
+
+export function clearSession() {
+  localStorage.removeItem('verifai_access_token');
+  localStorage.removeItem('verifai_refresh_token');
+}
+
+function authEmail(officerId: string) {
+  const value = officerId.trim();
+  return value.includes('@') ? value : `${value}${AUTH_EMAIL_SUFFIX}`;
+}
+
+export async function signInOfficer(officerId: string, password: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Supabase authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend/.env.');
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email: authEmail(officerId), password }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.access_token) {
+    throw new Error(payload?.error_description || payload?.msg || 'Invalid officer credentials.');
+  }
+
+  setSession(payload.access_token, payload.refresh_token);
+  return payload;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(options.headers);
@@ -40,6 +81,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!response.ok || payload?.success === false) {
     const error = payload?.error as ApiErrorShape | undefined;
+    if (response.status === 401) clearSession();
     throw new Error(error?.message || `API request failed (${response.status})`);
   }
 
