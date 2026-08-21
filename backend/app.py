@@ -2,6 +2,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 from config import supabase
+from run_screening import run_screening
 from screenings import create_screening, upload_document
 
 app = Flask(__name__)
@@ -28,6 +29,11 @@ app.add_url_rule("/api/screenings", view_func=create_screening, methods=["POST"]
 app.add_url_rule(
     "/api/screenings/<screening_id>/documents",
     view_func=upload_document,
+    methods=["POST"],
+)
+app.add_url_rule(
+    "/api/screenings/<screening_id>/run",
+    view_func=run_screening,
     methods=["POST"],
 )
 
