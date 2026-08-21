@@ -7,73 +7,28 @@ export interface ApiErrorShape { code?: string; message?: string; }
 export interface ScreeningListItem { screening_id: string; document_type: string; risk_level: 'low' | 'medium' | 'high'; status: string; action?: string; created_at: string; }
 export interface DashboardStats { documents_screened: number; low_risk: number; medium_risk: number; high_risk: number; tampering_flags: number; }
 
-function getToken(): string | null {
-  return localStorage.getItem('verifai_access_token') || sessionStorage.getItem('verifai_access_token');
-}
-
-function setSession(accessToken: string, refreshToken: string | undefined, remember: boolean) {
-  clearSession();
-  const storage = remember ? localStorage : sessionStorage;
-  storage.setItem('verifai_access_token', accessToken);
-  if (refreshToken) storage.setItem('verifai_refresh_token', refreshToken);
-}
-
-export function clearSession() {
-  localStorage.removeItem('verifai_access_token');
-  localStorage.removeItem('verifai_refresh_token');
-  sessionStorage.removeItem('verifai_access_token');
-  sessionStorage.removeItem('verifai_refresh_token');
-}
-
-function authEmail(officerId: string) {
-  const value = officerId.trim();
-  return value.includes('@') ? value : `${value}${AUTH_EMAIL_SUFFIX}`;
-}
+function getToken(): string | null { return localStorage.getItem('verifai_access_token') || sessionStorage.getItem('verifai_access_token'); }
+export function hasSession() { return Boolean(getToken()); }
+function setSession(accessToken: string, refreshToken: string | undefined, remember: boolean) { clearSession(); const storage = remember ? localStorage : sessionStorage; storage.setItem('verifai_access_token', accessToken); if (refreshToken) storage.setItem('verifai_refresh_token', refreshToken); }
+export function clearSession() { localStorage.removeItem('verifai_access_token'); localStorage.removeItem('verifai_refresh_token'); sessionStorage.removeItem('verifai_access_token'); sessionStorage.removeItem('verifai_refresh_token'); }
+function authEmail(officerId: string) { const value = officerId.trim(); return value.includes('@') ? value : `${value}${AUTH_EMAIL_SUFFIX}`; }
 
 export async function signInOfficer(officerId: string, password: string, remember = true) {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error('Supabase authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend/.env.');
-  }
-
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: authEmail(officerId), password }),
-  });
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('Supabase authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend/.env.');
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: authEmail(officerId), password }) });
   const payload = await response.json().catch(() => null);
-  if (!response.ok || !payload?.access_token) {
-    throw new Error(payload?.error_description || payload?.msg || 'Invalid officer credentials.');
-  }
-
-  setSession(payload.access_token, payload.refresh_token, remember);
-  return payload;
+  if (!response.ok || !payload?.access_token) throw new Error(payload?.error_description || payload?.msg || 'Invalid officer credentials.');
+  setSession(payload.access_token, payload.refresh_token, remember); return payload;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
-  const headers = new Headers(options.headers);
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-  if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok || payload?.success === false) {
-    const error = payload?.error as ApiErrorShape | undefined;
-    if (response.status === 401) clearSession();
-    throw new Error(error?.message || `API request failed (${response.status})`);
-  }
+  const token = getToken(); const headers = new Headers(options.headers); if (token) headers.set('Authorization', `Bearer ${token}`); if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers }); const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.success === false) { const error = payload?.error as ApiErrorShape | undefined; if (response.status === 401) clearSession(); throw new Error(error?.message || `API request failed (${response.status})`); }
   return payload?.data as T;
 }
 
-export function getScreenings(params: { page?: number; limit?: number; risk?: string; status?: string } = {}) {
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.risk) query.set('risk', params.risk);
-  if (params.status) query.set('status', params.status);
-  const suffix = query.toString() ? `?${query}` : '';
-  return request<{ items: ScreeningListItem[]; page: number; limit: number; total: number }>(`/screenings${suffix}`);
-}
+export function getScreenings(params: { page?: number; limit?: number; risk?: string; status?: string } = {}) { const query = new URLSearchParams(); if (params.page) query.set('page', String(params.page)); if (params.limit) query.set('limit', String(params.limit)); if (params.risk) query.set('risk', params.risk); if (params.status) query.set('status', params.status); const suffix = query.toString() ? `?${query}` : ''; return request<{ items: ScreeningListItem[]; page: number; limit: number; total: number }>(`/screenings${suffix}`); }
 export function getDashboardStats() { return request<DashboardStats>('/dashboard/stats'); }
 export function getScreening(screeningId: string) { return request<Record<string, unknown>>(`/screenings/${encodeURIComponent(screeningId)}`); }
 export function createScreening(formData: FormData) { return request<{ screening_id: string; status: string; document_id: string }>('/screenings', { method: 'POST', body: formData }); }
