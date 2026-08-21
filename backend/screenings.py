@@ -7,17 +7,17 @@ import uuid
 from flask import g, jsonify, request
 from werkzeug.utils import secure_filename
 
-from auth import require_auth
-from config import supabase
+try:
+    from auth import require_auth
+    from config import supabase
+except ImportError:
+    from backend.auth import require_auth
+    from backend.config import supabase
 
 BUCKET_NAME = "identity-documents"
 MAX_FILE_SIZE_BYTES = int(os.getenv("MAX_DOCUMENT_SIZE_BYTES", 10 * 1024 * 1024))
 ALLOWED_DOCUMENT_TYPES = {"passport", "visa", "national_id", "driving_license", "permit"}
-ALLOWED_MIME_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "application/pdf": ".pdf",
-}
+ALLOWED_MIME_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "application/pdf": ".pdf"}
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf"}
 
 
@@ -43,7 +43,6 @@ def _read_file(file_storage):
 def _validate_document(document, document_type):
     if document is None or not document.filename:
         return "INVALID_REQUEST", "document file is required.", 400
-
     if document_type not in ALLOWED_DOCUMENT_TYPES:
         return "INVALID_DOCUMENT_TYPE", "Unsupported document_type.", 400
 
@@ -60,26 +59,20 @@ def _validate_document(document, document_type):
     if extension != expected_extension:
         return "UNSUPPORTED_FILE_TYPE", "File extension does not match its MIME type.", 400
 
-    size = _file_size(document)
-    if size > MAX_FILE_SIZE_BYTES:
+    if _file_size(document) > MAX_FILE_SIZE_BYTES:
         return "FILE_TOO_LARGE", "Document exceeds the configured maximum file size.", 400
 
     return None
 
 
 def _upload(path, data, mime_type):
-    return supabase.storage.from_(BUCKET_NAME).upload(
-        path,
-        data,
-        {"content-type": mime_type, "upsert": False},
-    )
+    return supabase.storage.from_(BUCKET_NAME).upload(path, data, {"content-type": mime_type, "upsert": False})
 
 
 def _remove(path):
     try:
         supabase.storage.from_(BUCKET_NAME).remove([path])
     except Exception:
-        # Cleanup is best effort; never mask the original database/storage error.
         pass
 
 
@@ -102,19 +95,17 @@ def _create_document(screening_id, document, document_type):
     try:
         response = (
             supabase.table("documents")
-            .insert(
-                {
-                    "id": document_id,
-                    "screening_id": screening_id,
-                    "document_type": document_type,
-                    "original_filename": filename,
-                    "storage_path": storage_path,
-                    "mime_type": document.mimetype.lower(),
-                    "file_size_bytes": len(file_data),
-                    "checksum_sha256": checksum,
-                    "processing_status": "uploaded",
-                }
-            )
+            .insert({
+                "id": document_id,
+                "screening_id": screening_id,
+                "document_type": document_type,
+                "original_filename": filename,
+                "storage_path": storage_path,
+                "mime_type": document.mimetype.lower(),
+                "file_size_bytes": len(file_data),
+                "checksum_sha256": checksum,
+                "processing_status": "uploaded",
+            })
             .execute()
         )
         rows = getattr(response, "data", None) or []
@@ -127,16 +118,14 @@ def _create_document(screening_id, document, document_type):
 
 
 def _screening_response(screening, document):
-    return jsonify(
-        {
-            "success": True,
-            "data": {
-                "screening_id": screening["screening_number"],
-                "status": screening["status"],
-                "document_id": document["id"],
-            },
-        }
-    )
+    return jsonify({
+        "success": True,
+        "data": {
+            "screening_id": screening["screening_number"],
+            "status": screening["status"],
+            "document_id": document["id"],
+        },
+    })
 
 
 @require_auth
@@ -156,13 +145,7 @@ def create_screening():
     try:
         screening_response = (
             supabase.table("screenings")
-            .insert(
-                {
-                    "created_by": user_id,
-                    "document_type": document_type,
-                    "status": "processing",
-                }
-            )
+            .insert({"created_by": user_id, "document_type": document_type, "status": "processing"})
             .execute()
         )
         screening_rows = getattr(screening_response, "data", None) or []
@@ -180,9 +163,9 @@ def create_screening():
             pass
         return _error(*error)
 
-    # presented_face has no persistence column in the authoritative schema.
-    # Accepting it here preserves the API contract; face processing will be added
-    # in the orchestration stage when its AI input interface is defined.
+    # The authoritative schema has no presented-face input column. Keep the
+    # optional contract field accepted now; face processing will consume it
+    # when the AI module interface is integrated in the run stage.
     _ = presented_face
 
     return _screening_response(screening, document_row), 201
@@ -219,15 +202,13 @@ def upload_document(screening_id):
     if error:
         return _error(*error)
 
-    return jsonify(
-        {
-            "success": True,
-            "data": {
-                "document_id": document_row["id"],
-                "screening_id": screening["screening_number"],
-                "document_type": document_row["document_type"],
-                "filename": document_row["original_filename"],
-                "status": document_row["processing_status"],
-            },
-        }
-    )
+    return jsonify({
+        "success": True,
+        "data": {
+            "document_id": document_row["id"],
+            "screening_id": screening["screening_number"],
+            "document_type": document_row["document_type"],
+            "filename": document_row["original_filename"],
+            "status": document_row["processing_status"],
+        },
+    })
