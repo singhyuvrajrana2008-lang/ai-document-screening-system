@@ -2,6 +2,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 from config import supabase
+from actions import officer_action
 from results import (
     get_ocr_result,
     get_risk_result,
@@ -67,6 +68,11 @@ app.add_url_rule(
     "/api/screenings/<screening_id>/risk",
     view_func=get_risk_result,
     methods=["GET"],
+)
+app.add_url_rule(
+    "/api/screenings/<screening_id>/action",
+    view_func=officer_action,
+    methods=["POST"],
 )
 
 
