@@ -1,6 +1,8 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
+
 from config import supabase
+from screenings import create_screening, upload_document
 
 app = Flask(__name__)
 CORS(app)
@@ -9,7 +11,6 @@ CORS(app)
 def health_check():
     db_status = "connected"
     try:
-        # Simple real query: count rows in reference_records (the demo/mock table)
         supabase.table("reference_records").select("id", count="exact").limit(1).execute()
     except Exception as e:
         db_status = f"error: {str(e)}"
@@ -21,6 +22,15 @@ def health_check():
             "database": db_status
         }
     })
+
+
+app.add_url_rule("/api/screenings", view_func=create_screening, methods=["POST"])
+app.add_url_rule(
+    "/api/screenings/<screening_id>/documents",
+    view_func=upload_document,
+    methods=["POST"],
+)
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
