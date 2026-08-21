@@ -3,6 +3,7 @@ from flask_cors import CORS
 
 from config import supabase
 from actions import officer_action
+from history import dashboard_stats, list_screenings
 from results import (
     get_ocr_result,
     get_risk_result,
@@ -34,6 +35,7 @@ def health_check():
 
 
 app.add_url_rule("/api/screenings", view_func=create_screening, methods=["POST"])
+app.add_url_rule("/api/screenings", view_func=list_screenings, methods=["GET"])
 app.add_url_rule(
     "/api/screenings/<screening_id>/documents",
     view_func=upload_document,
@@ -49,31 +51,12 @@ app.add_url_rule(
     view_func=get_screening_result,
     methods=["GET"],
 )
-app.add_url_rule(
-    "/api/screenings/<screening_id>/ocr",
-    view_func=get_ocr_result,
-    methods=["GET"],
-)
-app.add_url_rule(
-    "/api/screenings/<screening_id>/validation",
-    view_func=get_validation_result,
-    methods=["GET"],
-)
-app.add_url_rule(
-    "/api/screenings/<screening_id>/tampering",
-    view_func=get_tampering_result,
-    methods=["GET"],
-)
-app.add_url_rule(
-    "/api/screenings/<screening_id>/risk",
-    view_func=get_risk_result,
-    methods=["GET"],
-)
-app.add_url_rule(
-    "/api/screenings/<screening_id>/action",
-    view_func=officer_action,
-    methods=["POST"],
-)
+app.add_url_rule("/api/screenings/<screening_id>/ocr", view_func=get_ocr_result, methods=["GET"])
+app.add_url_rule("/api/screenings/<screening_id>/validation", view_func=get_validation_result, methods=["GET"])
+app.add_url_rule("/api/screenings/<screening_id>/tampering", view_func=get_tampering_result, methods=["GET"])
+app.add_url_rule("/api/screenings/<screening_id>/risk", view_func=get_risk_result, methods=["GET"])
+app.add_url_rule("/api/screenings/<screening_id>/action", view_func=officer_action, methods=["POST"])
+app.add_url_rule("/api/dashboard/stats", view_func=dashboard_stats, methods=["GET"])
 
 
 if __name__ == "__main__":
