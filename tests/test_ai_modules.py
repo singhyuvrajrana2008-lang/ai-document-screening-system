@@ -1,6 +1,9 @@
 from datetime import date, timedelta
 
+from ai.face import verify_faces
+from ai.ocr import _parse_mrz, extract_passport
 from ai.risk import calculate_risk
+from ai.tampering import analyze_document_tampering
 from ai.validation import validate_passport
 
 
@@ -28,6 +31,37 @@ def test_invalid_passport_fields_are_explicit():
     })
     assert result["status"] == "fail"
     assert result["issues"]
+
+
+def test_mrz_parser_extracts_td3_fields():
+    result = _parse_mrz([
+        "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<",
+        "L898902C36UTO7408122F1204159ZE184226B<<<<<10",
+    ])
+    assert result["name"] == "ERIKSSON ANNA MARIA"
+    assert result["passport_number"] == "L898902C3"
+    assert result["nationality"] == "UTO"
+    assert result["date_of_birth"] == "1974-08-12"
+    assert result["expiry_date"] == "2012-04-15"
+    assert result["gender"] == "F"
+
+
+def test_ocr_missing_file_fails_without_fabricating_fields(tmp_path):
+    result = extract_passport(tmp_path / "missing.png")
+    assert result == {"status": "failed", "confidence": 0.0, "fields": {}}
+
+
+def test_tampering_missing_file_fails_cleanly(tmp_path):
+    result = analyze_document_tampering(tmp_path / "missing.png")
+    assert result["status"] == "failed"
+    assert result["tampering_detected"] is False
+    assert result["score"] == 0.0
+
+
+def test_face_missing_inputs_are_explicit(tmp_path):
+    result = verify_faces(tmp_path / "document.jpg", tmp_path / "presented.jpg")
+    assert result["status"] == "face_not_detected"
+    assert result["similarity_score"] == 0.0
 
 
 def test_risk_engine_is_explainable():
