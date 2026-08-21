@@ -31,5 +31,7 @@ Tesseract executable is installed separately on the host. Face verification
 can use an optional backend; when it is unavailable the module returns
 `uncertain` instead of fabricating a similarity score.
 
-The test suite currently focuses on dependency-light validation and risk
-behavior so it can run before heavyweight CV models are installed.
+The test suite covers validation, risk aggregation, TD3 MRZ parsing, and
+explicit failure behavior for missing OCR, tampering, and face inputs.
+
+GitHub Actions runs the AI test suite on changes to the AI/test paths.
