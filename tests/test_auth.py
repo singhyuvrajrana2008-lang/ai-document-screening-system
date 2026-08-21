@@ -1,6 +1,12 @@
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
-from flask import Flask, jsonify, g
+from flask import Flask, g, jsonify
+
+# Keep auth unit tests independent from local .env/Supabase credentials.
+fake_config = ModuleType("config")
+fake_config.supabase = None
+sys.modules.setdefault("config", fake_config)
 
 import backend.auth as auth
 
