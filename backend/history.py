@@ -102,13 +102,18 @@ def dashboard_stats():
             .eq("created_by", user_id)
             .execute()
         )
-        tampering_response = (
-            supabase.table("tampering_results")
-            .select("id", count="exact")
-            .eq("tampering_detected", True)
-            .in_("screening_id", _owned_screening_ids(user_id))
-            .execute()
-        )
+
+        owned_ids = _owned_screening_ids(user_id)
+        tampering_count = 0
+        if owned_ids:
+            tampering_response = (
+                supabase.table("tampering_results")
+                .select("id", count="exact")
+                .eq("tampering_detected", True)
+                .in_("screening_id", owned_ids)
+                .execute()
+            )
+            tampering_count = getattr(tampering_response, "count", None) or 0
 
         return jsonify({
             "success": True,
@@ -117,7 +122,7 @@ def dashboard_stats():
                 "low_risk": screening_counts["low"],
                 "medium_risk": screening_counts["medium"],
                 "high_risk": screening_counts["high"],
-                "tampering_flags": getattr(tampering_response, "count", None) or 0,
+                "tampering_flags": tampering_count,
             },
         })
     except Exception:
