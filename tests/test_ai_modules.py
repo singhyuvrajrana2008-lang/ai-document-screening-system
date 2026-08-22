@@ -75,3 +75,19 @@ def test_risk_engine_is_explainable():
     assert 0 <= result["score"] <= 100
     assert result["factors"]
     assert result["explanation"]
+
+
+def test_risk_engine_accepts_backend_adapter_field_names():
+    result = calculate_risk(
+        {"status": "completed", "confidence": 0.97},
+        {"overall_status": "pass", "issues": [], "checks": {}},
+        {
+            "tampering_detected": False,
+            "tampering_score": 0.80,
+            "indicators": [],
+        },
+        {"status": "not_required", "similarity_score": None},
+    )
+    assert result["level"] == "medium"
+    assert result["score"] == 24.0
+    assert "Document validation passed" in result["factors"]
