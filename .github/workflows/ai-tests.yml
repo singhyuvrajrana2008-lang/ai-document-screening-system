@@ -1,0 +1,30 @@
+name: AI tests
+
+on:
+  push:
+    branches: [ai-vision]
+  pull_request:
+    paths:
+      - "ai/**"
+      - "tests/**"
+      - ".github/workflows/ai-tests.yml"
+
+jobs:
+  test-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai/requirements.txt
+
+      - name: Install AI dependencies
+        run: python -m pip install -r ai/requirements.txt
+
+      - name: Run AI tests
+        run: python -m pytest -q tests/test_ai_modules.py

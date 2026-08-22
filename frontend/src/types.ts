@@ -1,4 +1,4 @@
-export type ScreenType = 
+export type ScreenType =
   | 'auth'
   | 'command-center'
   | 'new-screening'
@@ -6,7 +6,7 @@ export type ScreenType =
   | 'security';
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
-export type ScreeningStatus = 'Approved' | 'Rejected' | 'Pending';
+export type ScreeningStatus = 'Completed' | 'Approved' | 'Rejected' | 'Manual Review' | 'Failed' | 'Pending';
 
 export interface ValidationChecks {
   mrzValid: boolean;
