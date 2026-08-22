@@ -1,19 +1,29 @@
+"""Application configuration and Supabase service-role client."""
+
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 from supabase import create_client
 
-# Load variables from the .env file into the environment
+# Load backend/.env even when Flask is started from the repository root.
+load_dotenv(Path(__file__).resolve().parent / ".env")
 load_dotenv()
 
-SUPABASE_URL = os.environ.get("DATABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("STORAGE_KEY")
+SUPABASE_URL = (
+    os.getenv("SUPABASE_URL")
+    or os.getenv("DATABASE_URL")
+    or os.getenv("VITE_SUPABASE_URL")
+)
+SUPABASE_SERVICE_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("STORAGE_KEY")
+)
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     raise RuntimeError(
-        "Missing DATABASE_URL or STORAGE_KEY in your .env file. "
-        "Check backend/.env exists and both values are filled in."
+        "Missing SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env. "
+        "Legacy DATABASE_URL/STORAGE_KEY names are also supported."
     )
 
-# This client uses the service_role key -> full backend access, bypasses RLS.
-# NEVER import this into anything that isn't backend code.
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
