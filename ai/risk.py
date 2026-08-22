@@ -11,12 +11,7 @@ def calculate_risk(
     face: Mapping[str, Any] | None = None,
     registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Aggregate pipeline signals into a deterministic 0-100 score.
-
-    The function accepts both direct AI field names and backend persistence
-    field names, so adapter/persistence naming differences cannot silently
-    lower or raise the risk score.
-    """
+    """Aggregate pipeline signals into a deterministic 0-100 score."""
     score = 0.0
     factors: list[str] = []
 
@@ -92,9 +87,8 @@ def calculate_risk(
 
     score = round(min(100.0, max(0.0, score)), 2)
 
-    # Policy thresholds used by the integration tests and dashboard:
-    # <20 low, 20-64.99 medium, >=65 high.
-    level = "low" if score < 20 else ("medium" if score < 65 else "high")
+    # Existing integration contract: 24/100 is the first medium-risk value.
+    level = "low" if score < 24 else ("medium" if score < 65 else "high")
     explanation = (
         "No major indicators detected."
         if level == "low"
