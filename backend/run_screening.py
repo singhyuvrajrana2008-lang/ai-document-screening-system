@@ -2,7 +2,7 @@
 
 from threading import Thread
 
-from flask import g, jsonify
+from flask import g, jsonify, request
 
 try:
     from auth import require_auth
@@ -89,9 +89,7 @@ def run_screening(screening_id):
             400,
         )
 
-    presented_face = getattr(__import__("flask"), "request").files.get("presented_face")
-    if presented_face is None:
-        presented_face = getattr(__import__("flask"), "request").files.get("face")
+    presented_face = request.files.get("presented_face") or request.files.get("face")
     presented_face_bytes = presented_face.read() if presented_face else None
 
     try:
