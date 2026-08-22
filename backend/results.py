@@ -14,35 +14,50 @@ def _error(code, message, status):
     return jsonify({"success": False, "error": {"code": code, "message": message}}), status
 
 
+def _first_row(response):
+    rows = getattr(response, "data", None) or []
+    return rows[0] if rows else None
+
+
 def _get_screening(screening_id):
     response = (
         supabase.table("screenings")
         .select("id, screening_number, created_by, document_type, status")
-        .eq("id", screening_id)
-        .maybe_single()
+        .eq("screening_number", screening_id)
+        .limit(1)
         .execute()
     )
-    screening = getattr(response, "data", None)
+    screening = _first_row(response)
     if screening:
         return screening
 
     response = (
         supabase.table("screenings")
         .select("id, screening_number, created_by, document_type, status")
-        .eq("screening_number", screening_id)
-        .maybe_single()
+        .eq("id", screening_id)
+        .limit(1)
         .execute()
     )
-    return getattr(response, "data", None)
+    return _first_row(response)
 
 
 def _authorized(screening):
-    return screening.get("created_by") == g.current_user_id or g.current_role in {"reviewer", "admin"}
+    return (
+        screening.get("created_by") == g.current_user_id
+        or g.current_role in {"reviewer", "admin"}
+    )
 
 
-def _load_single(table, screening_id, columns="*"):
-    response = supabase.table(table).select(columns).eq("screening_id", screening_id).maybe_single().execute()
-    return getattr(response, "data", None)
+def _load_single(table, screening_id):
+    response = (
+        supabase.table(table)
+        .select("*")
+        .eq("screening_id", screening_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return _first_row(response)
 
 
 def _get_document(screening_id):
@@ -54,29 +69,48 @@ def _get_document(screening_id):
         .limit(1)
         .execute()
     )
-    rows = getattr(response, "data", None) or []
-    return rows[0] if rows else None
+    return _first_row(response)
 
 
 def _load_context(screening_id):
     try:
         screening = _get_screening(screening_id)
-    except Exception:
-        return None, None, _error("INTERNAL_ERROR", "Screening lookup failed.", 500)
+    except Exception as exc:
+        print(f"SCREENING LOOKUP ERROR [{screening_id}]: {exc}", flush=True)
+        return None, None, _error("INTERNAL_ERROR", str(exc), 500)
+
     if not screening:
         return None, None, _error("SCREENING_NOT_FOUND", "Screening not found.", 404)
+
     if not _authorized(screening):
-        return None, None, _error("FORBIDDEN", "You are not authorized to view this screening.", 403)
-    return screening, _get_document(screening["id"]), None
+        return None, None, _error(
+            "FORBIDDEN",
+            "You are not authorized to view this screening.",
+            403,
+        )
+
+    try:
+        document = _get_document(screening["id"])
+    except Exception as exc:
+        print(f"DOCUMENT LOOKUP ERROR [{screening_id}]: {exc}", flush=True)
+        return None, None, _error("INTERNAL_ERROR", str(exc), 500)
+
+    return screening, document, None
 
 
 def _result_or_404(table, screening_id, label):
     try:
-        result = _load_single(table, screening_id, label == "Risk" and "*" or "*")
-    except Exception:
-        return None, _error("INTERNAL_ERROR", f"{label} result lookup failed.", 500)
+        result = _load_single(table, screening_id)
+    except Exception as exc:
+        print(f"{label.upper()} RESULT LOOKUP ERROR [{screening_id}]: {exc}", flush=True)
+        return None, _error("INTERNAL_ERROR", f"{label} result lookup failed: {exc}", 500)
+
     if not result:
-        return None, _error("RESULT_NOT_FOUND", f"{label} result is not available.", 404)
+        return None, _error(
+            "RESULT_NOT_FOUND",
+            f"{label} result is not available.",
+            404,
+        )
     return result, None
 
 
@@ -95,11 +129,21 @@ def get_screening_result(screening_id):
         tampering = _load_single("tampering_results", actual_id)
         face = _load_single("face_verifications", actual_id)
         risk = _load_single("risk_assessments", actual_id)
-    except Exception:
-        return _error("INTERNAL_ERROR", "Screening result lookup failed.", 500)
+    except Exception as exc:
+        print(f"SCREENING RESULT LOOKUP ERROR [{screening_id}]: {exc}", flush=True)
+        return _error("INTERNAL_ERROR", str(exc), 500)
+
+    # While the asynchronous pipeline is running, report processing instead
+    # of making the frontend treat the screening as a generic missing result.
+    if screening["status"] == "processing":
+        return _error("SCREENING_PROCESSING", "Screening is still processing.", 202)
 
     if not all((ocr, validation, tampering, face, risk)):
-        return _error("RESULT_NOT_FOUND", "Complete screening result is not available.", 404)
+        return _error(
+            "RESULT_NOT_FOUND",
+            "Complete screening result is not available.",
+            404,
+        )
 
     return jsonify(
         {
@@ -131,7 +175,9 @@ def get_screening_result(screening_id):
                 "face_verification": {
                     "status": face["status"],
                     "similarity_score": face.get("similarity_score"),
-                    "message": face.get("failure_reason") or ("Possible match" if face["status"] == "match" else ""),
+                    "message": face.get("failure_reason") or (
+                        "Possible match" if face["status"] == "match" else ""
+                    ),
                 },
                 "risk": {
                     "score": risk["risk_score"],
@@ -157,19 +203,58 @@ def _stage_result(screening_id, table, label, serializer):
 
 @require_auth
 def get_ocr_result(screening_id):
-    return _stage_result(screening_id, "ocr_results", "OCR", lambda r: {"status": r["processing_status"], "confidence": r.get("confidence"), "fields": r.get("extracted_data") or {}})
+    return _stage_result(
+        screening_id,
+        "ocr_results",
+        "OCR",
+        lambda r: {
+            "status": r["processing_status"],
+            "confidence": r.get("confidence"),
+            "fields": r.get("extracted_data") or {},
+        },
+    )
 
 
 @require_auth
 def get_validation_result(screening_id):
-    return _stage_result(screening_id, "validation_results", "Validation", lambda r: {"status": r["overall_status"], "issues": r.get("issues") or [], "checks": r.get("checks") or {}})
+    return _stage_result(
+        screening_id,
+        "validation_results",
+        "Validation",
+        lambda r: {
+            "status": r["overall_status"],
+            "issues": r.get("issues") or [],
+            "checks": r.get("checks") or {},
+        },
+    )
 
 
 @require_auth
 def get_tampering_result(screening_id):
-    return _stage_result(screening_id, "tampering_results", "Tampering", lambda r: {"status": "completed", "tampering_detected": r["tampering_detected"], "score": r.get("tampering_score"), "indicators": r.get("indicators") or [], "explanation": r.get("explanation") or ""})
+    return _stage_result(
+        screening_id,
+        "tampering_results",
+        "Tampering",
+        lambda r: {
+            "status": "completed",
+            "tampering_detected": r["tampering_detected"],
+            "score": r.get("tampering_score"),
+            "indicators": r.get("indicators") or [],
+            "explanation": r.get("explanation") or "",
+        },
+    )
 
 
 @require_auth
 def get_risk_result(screening_id):
-    return _stage_result(screening_id, "risk_assessments", "Risk", lambda r: {"score": r["risk_score"], "level": r["risk_level"], "factors": r.get("contributing_factors") or [], "explanation": r.get("explanation") or ""})
+    return _stage_result(
+        screening_id,
+        "risk_assessments",
+        "Risk",
+        lambda r: {
+            "score": r["risk_score"],
+            "level": r["risk_level"],
+            "factors": r.get("contributing_factors") or [],
+            "explanation": r.get("explanation") or "",
+        },
+    )
