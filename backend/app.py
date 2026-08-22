@@ -3,6 +3,7 @@ from flask_cors import CORS
 
 from config import supabase
 from actions import officer_action
+from face import verify_screening_face
 from history import dashboard_stats, list_screenings
 from results import (
     get_ocr_result,
@@ -54,6 +55,7 @@ app.add_url_rule(
 app.add_url_rule("/api/screenings/<screening_id>/ocr", view_func=get_ocr_result, methods=["GET"])
 app.add_url_rule("/api/screenings/<screening_id>/validation", view_func=get_validation_result, methods=["GET"])
 app.add_url_rule("/api/screenings/<screening_id>/tampering", view_func=get_tampering_result, methods=["GET"])
+app.add_url_rule("/api/screenings/<screening_id>/face", view_func=verify_screening_face, methods=["POST"])
 app.add_url_rule("/api/screenings/<screening_id>/risk", view_func=get_risk_result, methods=["GET"])
 app.add_url_rule("/api/screenings/<screening_id>/action", view_func=officer_action, methods=["POST"])
 app.add_url_rule("/api/dashboard/stats", view_func=dashboard_stats, methods=["GET"])
