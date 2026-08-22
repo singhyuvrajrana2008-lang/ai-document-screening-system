@@ -8,7 +8,15 @@ import { CommandCenterScreen } from './components/Screens/CommandCenterScreen';
 import { NewScreeningScreen } from './components/Screens/NewScreeningScreen';
 import { AuditHistoryScreen } from './components/Screens/AuditHistoryScreen';
 import { SecurityScreen } from './components/Screens/SecurityScreen';
-import { clearSession, getScreenings, hasSession } from './services/api';
+import { checkBackendHealth, clearSession, getDashboardStats, getScreenings, hasSession, type DashboardStats } from './services/api';
+
+const EMPTY_STATS: DashboardStats = {
+  documents_screened: 0,
+  low_risk: 0,
+  medium_risk: 0,
+  high_risk: 0,
+  tampering_flags: 0,
+};
 
 function mapRiskLevel(level: string): ScreeningRecord['riskLevel'] { const normalized = level.toUpperCase(); if (normalized === 'HIGH') return 'HIGH'; if (normalized === 'MEDIUM') return 'MEDIUM'; return 'LOW'; }
 function mapStatus(status: string, action?: string): ScreeningRecord['status'] { const value = (action || status || '').toLowerCase(); if (value === 'approved') return 'Approved'; if (value === 'rejected') return 'Rejected'; return 'Pending'; }
@@ -18,11 +26,36 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>(() => hasSession() ? 'command-center' : 'auth');
   const [records, setRecords] = useState<ScreeningRecord[]>(INITIAL_AUDIT_RECORDS);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
 
   useEffect(() => {
     if (currentScreen === 'auth') return;
     let cancelled = false;
-    getScreenings({ page: 1, limit: 20 }).then((result) => { if (!cancelled && result.items.length > 0) setRecords(result.items.map(mapApiRecord)); }).catch((error) => { if (error instanceof Error && /token|unauthorized|authenticated/i.test(error.message)) setCurrentScreen('auth'); });
+
+    Promise.allSettled([
+      getScreenings({ page: 1, limit: 20 }),
+      getDashboardStats(),
+      checkBackendHealth(),
+    ]).then(([screeningsResult, statsResult, healthResult]) => {
+      if (cancelled) return;
+
+      if (screeningsResult.status === 'fulfilled' && screeningsResult.value.items.length > 0) {
+        setRecords(screeningsResult.value.items.map(mapApiRecord));
+      }
+      if (statsResult.status === 'fulfilled') setStats(statsResult.value);
+      if (healthResult.status === 'fulfilled') setBackendStatus(healthResult.value ? 'connected' : 'offline');
+      else setBackendStatus('offline');
+
+      const authError = [screeningsResult, statsResult].some(
+        (result) => result.status === 'rejected' && result.reason instanceof Error && /token|unauthorized|authenticated/i.test(result.reason.message),
+      );
+      if (authError) {
+        clearSession();
+        setCurrentScreen('auth');
+      }
+    });
+
     return () => { cancelled = true; };
   }, [currentScreen]);
 
@@ -38,7 +71,7 @@ export default function App() {
     <div className="flex-1 ml-64 flex flex-col min-h-screen relative z-10">
       <TopAppBar currentScreen={currentScreen} onNavigate={setCurrentScreen} onSignOut={handleSignOut} onQuickSearch={() => setCurrentScreen('audit-history')} />
       <main className="flex-1 overflow-y-auto">
-        {currentScreen === 'command-center' && <CommandCenterScreen records={records} onStartScreening={() => setCurrentScreen('new-screening')} onViewAllAudit={() => setCurrentScreen('audit-history')} onSelectRecord={handleSelectRecord} />}
+        {currentScreen === 'command-center' && <CommandCenterScreen records={records} stats={stats} backendStatus={backendStatus} onStartScreening={() => setCurrentScreen('new-screening')} onViewAllAudit={() => setCurrentScreen('audit-history')} onSelectRecord={handleSelectRecord} />}
         {currentScreen === 'new-screening' && <NewScreeningScreen onSaveRecord={handleSaveRecord} onNavigateToAudit={() => setCurrentScreen('audit-history')} />}
         {currentScreen === 'audit-history' && <AuditHistoryScreen records={records} selectedRecordId={selectedRecordId} onSelectRecord={(rec) => setSelectedRecordId(rec ? rec.id : null)} />}
         {currentScreen === 'security' && <SecurityScreen />}
