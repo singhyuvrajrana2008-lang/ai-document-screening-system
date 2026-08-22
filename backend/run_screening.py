@@ -2,7 +2,7 @@
 
 from threading import Thread
 
-from flask import g, jsonify
+from flask import g, jsonify, request
 
 try:
     from auth import require_auth
@@ -18,11 +18,11 @@ def _error(code, message, status):
     return jsonify({"success": False, "error": {"code": code, "message": message}}), status
 
 
-def _run_in_background(screening_id):
+def _run_in_background(screening_id, presented_face_bytes):
     # The pipeline owns failure handling and marks the screening failed if a
     # stage raises. Do not expose internal exceptions to the HTTP client.
     try:
-        run_screening_pipeline(screening_id)
+        run_screening_pipeline(screening_id, presented_face_bytes=presented_face_bytes)
     except Exception:
         pass
 
@@ -51,10 +51,15 @@ def run_screening(screening_id):
     if screening.get("status") not in {"processing", "failed"}:
         return _error("INVALID_REQUEST", "Screening cannot be run in its current status.", 400)
 
+    # Accept the optional presented face with the run request. Keeping the
+    # bytes in the background worker avoids persisting biometric data.
+    presented_face = request.files.get("presented_face") or request.files.get("face")
+    presented_face_bytes = presented_face.read() if presented_face else None
+
     # The API is intentionally asynchronous: the client receives processing
     # immediately, while the five pipeline stages execute and persist results.
     supabase.table("screenings").update({"status": "processing"}).eq("id", screening_id).execute()
-    Thread(target=_run_in_background, args=(screening_id,), daemon=True).start()
+    Thread(target=_run_in_background, args=(screening_id, presented_face_bytes), daemon=True).start()
 
     return jsonify({
         "success": True,
