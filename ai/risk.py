@@ -11,12 +11,18 @@ def calculate_risk(
     face: Mapping[str, Any] | None = None,
     registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Aggregate signals into a deterministic 0-100 decision-support score."""
+    """Aggregate pipeline signals into a deterministic 0-100 decision-support score.
+
+    Accepts both the public AI contract names (``status``, ``score``) and the
+    backend persistence names (``overall_status``, ``tampering_score``). This
+    keeps the risk engine usable directly and through ``backend.ai_adapter``.
+    """
     score = 0.0
     factors: list[str] = []
 
     ocr_conf = float(ocr.get("confidence", 0.0) or 0.0)
-    if ocr.get("status") != "completed":
+    ocr_status = str(ocr.get("status", "failed"))
+    if ocr_status != "completed":
         score += 25
         factors.append("OCR did not complete successfully")
     elif ocr_conf < 0.70:
@@ -28,18 +34,27 @@ def calculate_risk(
     else:
         factors.append("OCR confidence high")
 
-    validation_status = str(validation.get("status", "warning"))
+    # Backend adapter uses overall_status; direct callers use status.
+    validation_status = str(
+        validation.get("status", validation.get("overall_status", "warning"))
+    ).lower()
     if validation_status == "fail":
         score += 30
         factors.append("Document validation failed one or more checks")
     elif validation_status == "warning":
         score += 12
         factors.append("Document validation produced warnings")
-    else:
+    elif validation_status == "pass":
         factors.append("Document validation passed")
+    else:
+        score += 12
+        factors.append("Document validation status is unavailable")
 
-    tamper_score = float(tampering.get("score", 0.0) or 0.0)
-    score += tamper_score * 30
+    # Backend adapter uses tampering_score; direct callers use score.
+    tamper_score = float(
+        tampering.get("score", tampering.get("tampering_score", 0.0)) or 0.0
+    )
+    score += max(0.0, min(1.0, tamper_score)) * 30
     if tampering.get("tampering_detected"):
         factors.append("Potential document manipulation indicators detected")
     else:
@@ -60,6 +75,8 @@ def calculate_risk(
             else:
                 score += 8
                 factors.append("Face match is below the preferred confidence threshold")
+        elif face_status == "not_required":
+            factors.append("Face verification was not requested")
 
     if registry:
         registry_status = str(registry.get("status", "unknown")).lower()
