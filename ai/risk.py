@@ -11,17 +11,17 @@ def calculate_risk(
     face: Mapping[str, Any] | None = None,
     registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Aggregate pipeline signals into a deterministic 0-100 decision-support score.
+    """Aggregate pipeline signals into a deterministic 0-100 score.
 
-    Accepts both the public AI contract names (``status``, ``score``) and the
-    backend persistence names (``overall_status``, ``tampering_score``). This
-    keeps the risk engine usable directly and through ``backend.ai_adapter``.
+    The function accepts both direct AI field names and backend persistence
+    field names, so adapter/persistence naming differences cannot silently
+    lower or raise the risk score.
     """
     score = 0.0
     factors: list[str] = []
 
     ocr_conf = float(ocr.get("confidence", 0.0) or 0.0)
-    ocr_status = str(ocr.get("status", "failed"))
+    ocr_status = str(ocr.get("status", "failed")).lower()
     if ocr_status != "completed":
         score += 25
         factors.append("OCR did not complete successfully")
@@ -34,7 +34,6 @@ def calculate_risk(
     else:
         factors.append("OCR confidence high")
 
-    # Backend adapter uses overall_status; direct callers use status.
     validation_status = str(
         validation.get("status", validation.get("overall_status", "warning"))
     ).lower()
@@ -50,18 +49,18 @@ def calculate_risk(
         score += 12
         factors.append("Document validation status is unavailable")
 
-    # Backend adapter uses tampering_score; direct callers use score.
     tamper_score = float(
         tampering.get("score", tampering.get("tampering_score", 0.0)) or 0.0
     )
-    score += max(0.0, min(1.0, tamper_score)) * 30
+    tamper_score = max(0.0, min(1.0, tamper_score))
+    score += tamper_score * 30
     if tampering.get("tampering_detected"):
         factors.append("Potential document manipulation indicators detected")
     else:
         factors.append("No strong tampering indicators")
 
     if face:
-        face_status = str(face.get("status", "uncertain"))
+        face_status = str(face.get("status", "uncertain")).lower()
         similarity = float(face.get("similarity_score", 0.0) or 0.0)
         if face_status == "mismatch":
             score += 25
@@ -92,9 +91,21 @@ def calculate_risk(
             factors.append("Reference registry status is unavailable or unknown")
 
     score = round(min(100.0, max(0.0, score)), 2)
-    level = "low" if score < 35 else ("medium" if score < 65 else "high")
-    explanation = "No major indicators detected." if level == "low" else (
-        "Some indicators require additional officer review." if level == "medium"
+
+    # Policy thresholds used by the integration tests and dashboard:
+    # <20 low, 20-64.99 medium, >=65 high.
+    level = "low" if score < 20 else ("medium" if score < 65 else "high")
+    explanation = (
+        "No major indicators detected."
+        if level == "low"
+        else "Some indicators require additional officer review."
+        if level == "medium"
         else "Multiple significant indicators are present; manual review is recommended."
     )
-    return {"score": score, "level": level, "factors": factors, "explanation": explanation}
+
+    return {
+        "score": score,
+        "level": level,
+        "factors": factors,
+        "explanation": explanation,
+    }
