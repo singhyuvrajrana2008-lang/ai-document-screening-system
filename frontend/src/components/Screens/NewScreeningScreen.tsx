@@ -3,7 +3,11 @@ import { AlertTriangle, CheckCircle2, Cpu, FileText, Loader2, RotateCcw, ShieldC
 import { ScreeningRecord } from '../../types';
 import { createScreening, getScreening, runScreening, submitOfficerAction } from '../../services/api';
 
-interface Props { onSaveRecord: (record: ScreeningRecord) => void; onNavigateToAudit: () => void; }
+interface Props {
+  onSaveRecord: (record: ScreeningRecord) => void;
+  onNavigateToAudit: () => void;
+}
+
 type DocType = 'passport' | 'visa' | 'national_id' | 'driving_license' | 'permit';
 const labels: Record<DocType, string> = { passport: 'Passport', visa: 'Visa', national_id: 'National ID', driving_license: 'Driving Licence', permit: 'Permit' };
 const steps = ['DOCUMENT', 'OCR', 'VALIDATION', 'TAMPERING', 'FACE VERIFY', 'RISK SCORE'];
@@ -14,30 +18,102 @@ function mapResult(data: any): ScreeningRecord {
   const faceStatus = String(data.face_verification?.status || 'uncertain');
   const created = new Date().toISOString();
   const fields = data.ocr?.fields || {};
-  return { id: String(data.screening_id), officerId: 'CURRENT-USER', officerName: 'Current Officer', documentType: String(data.document?.document_type || 'unknown'), country: String(fields.nationality || '—'), riskScore: Number(data.risk?.score || 0), riskLevel: risk, status: data.status === 'rejected' ? 'Rejected' : data.status === 'approved' ? 'Approved' : 'Pending', timestamp: created, timeDisplay: new Date(created).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), ocrConfidence: Number(data.ocr?.confidence || 0) * 100, formatValidation: validation === 'pass' ? 'PASS' : validation === 'fail' ? 'FAIL' : 'FLAG', formatStandard: 'ICAO DOC 9303', tamperingIndex: Number(data.tampering?.score || 0) * 100, faceMatchScore: Number(data.face_verification?.similarity_score || 0) * 100, contributingFactors: Array.isArray(data.risk?.factors) ? data.risk.factors.map(String) : [], validationChecks: { mrzValid: validation === 'pass', hologramValid: validation === 'pass', faceMatchValid: faceStatus === 'match', watchlistClean: true }, ocrData: { fullName: String(fields.name || '—'), dob: String(fields.date_of_birth || '—'), expiryDate: String(fields.expiry_date || '—'), documentNumber: String(fields.passport_number || fields.document_number || '—'), nationality: String(fields.nationality || '—'), documentType: String(data.document?.document_type || '—'), gender: fields.gender }, auditTrail: [{ time: new Date().toLocaleTimeString(), actor: 'AI ENGINE', message: data.risk?.explanation || 'Screening result generated.', type: 'ai' }] };
+  const status = String(data.status || '').toLowerCase();
+  const mappedStatus = status === 'rejected'
+    ? 'Rejected'
+    : status === 'approved'
+      ? 'Approved'
+      : status === 'manual_review'
+        ? 'Manual Review'
+        : status === 'failed'
+          ? 'Failed'
+          : status === 'completed'
+            ? 'Completed'
+            : 'Pending';
+
+  return {
+    id: String(data.screening_id),
+    officerId: 'CURRENT-USER',
+    officerName: 'Current Officer',
+    documentType: String(data.document?.document_type || 'unknown'),
+    country: String(fields.nationality || '—'),
+    riskScore: Number(data.risk?.score || 0),
+    riskLevel: risk,
+    status: mappedStatus,
+    timestamp: created,
+    timeDisplay: new Date(created).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    ocrConfidence: Number(data.ocr?.confidence || 0) * 100,
+    formatValidation: validation === 'pass' ? 'PASS' : validation === 'fail' ? 'FAIL' : 'FLAG',
+    formatStandard: 'ICAO DOC 9303',
+    tamperingIndex: Number(data.tampering?.score || 0) * 100,
+    faceMatchScore: Number(data.face_verification?.similarity_score || 0) * 100,
+    contributingFactors: Array.isArray(data.risk?.factors) ? data.risk.factors.map(String) : [],
+    validationChecks: { mrzValid: validation === 'pass', hologramValid: validation === 'pass', faceMatchValid: faceStatus === 'match', watchlistClean: true },
+    ocrData: { fullName: String(fields.name || '—'), dob: String(fields.date_of_birth || '—'), expiryDate: String(fields.expiry_date || '—'), documentNumber: String(fields.passport_number || fields.document_number || '—'), nationality: String(fields.nationality || '—'), documentType: String(data.document?.document_type || '—'), gender: fields.gender },
+    auditTrail: [{ time: new Date().toLocaleTimeString(), actor: 'AI ENGINE', message: data.risk?.explanation || 'Screening result generated.', type: 'ai' }],
+  };
 }
 
 export const NewScreeningScreen: React.FC<Props> = ({ onSaveRecord, onNavigateToAudit }) => {
-  const [file, setFile] = useState<File | null>(null); const [documentType, setDocumentType] = useState<DocType>('passport'); const [screeningId, setScreeningId] = useState(''); const [stage, setStage] = useState(0); const [processing, setProcessing] = useState(false); const [result, setResult] = useState<any>(null); const [error, setError] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [documentType, setDocumentType] = useState<DocType>('passport');
+  const [screeningId, setScreeningId] = useState('');
+  const [stage, setStage] = useState(0);
+  const [processing, setProcessing] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const start = async () => {
     if (!file) { setError('Select a JPEG, PNG, or PDF document first.'); return; }
     setError(''); setResult(null); setProcessing(true); setStage(0);
     try {
-      const form = new FormData(); form.append('document', file); form.append('document_type', documentType);
-      const created = await createScreening(form); setScreeningId(created.screening_id); await runScreening(created.screening_id);
-      for (let i = 0; i < 30; i++) { setStage(Math.min(5, Math.floor(i / 4))); await new Promise((resolve) => setTimeout(resolve, 1000)); try { const data = await getScreening(created.screening_id); setResult(data); setStage(6); setProcessing(false); return; } catch { /* pipeline is still running */ } }
+      const form = new FormData();
+      form.append('document', file);
+      form.append('document_type', documentType);
+      const created = await createScreening(form);
+      setScreeningId(created.screening_id);
+      await runScreening(created.screening_id);
+
+      for (let i = 0; i < 45; i += 1) {
+        setStage(Math.min(5, Math.floor(i / 5)));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        try {
+          const data = await getScreening(created.screening_id);
+          setResult(data);
+          setStage(6);
+          setProcessing(false);
+          onSaveRecord(mapResult(data));
+          return;
+        } catch (pollError) {
+          const message = pollError instanceof Error ? pollError.message : '';
+          if (!/processing|not available|result/i.test(message)) throw pollError;
+        }
+      }
       throw new Error('Screening timed out. Check Audit History for the latest state.');
-    } catch (e) { setError(e instanceof Error ? e.message : 'Screening failed.'); setProcessing(false); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Screening failed.');
+      setProcessing(false);
+    }
   };
 
   const decide = async (action: 'approved' | 'manual_review' | 'rejected') => {
-    if (!screeningId) return; setError('');
-    try { const response = await submitOfficerAction(screeningId, action); const next = { ...(result || {}), status: response.status }; setResult(next); onSaveRecord(mapResult(next)); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Unable to record officer action.'); }
+    if (!screeningId) return;
+    setError('');
+    try {
+      const response = await submitOfficerAction(screeningId, action);
+      const next = { ...(result || {}), status: response.status };
+      setResult(next);
+      onSaveRecord(mapResult(next));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to record officer action.');
+    }
   };
-  const reset = () => { setFile(null); setScreeningId(''); setStage(0); setResult(null); setProcessing(false); setError(''); if (inputRef.current) inputRef.current.value = ''; };
+
+  const reset = () => {
+    setFile(null); setScreeningId(''); setStage(0); setResult(null); setProcessing(false); setError('');
+    if (inputRef.current) inputRef.current.value = '';
+  };
 
   return <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-4 font-mono text-xs">
     <div className="bg-[#18181B] border border-[#27272A] rounded-lg p-4"><div className="text-[10px] text-[#10B981] font-bold tracking-wider">VERIFAI / INGESTION &amp; ANALYSIS</div><h1 className="text-xl md:text-2xl font-bold text-white tracking-tight font-sans mt-1">DOCUMENT INTELLIGENCE PIPELINE</h1><p className="text-xs text-[#A1A1AA] mt-1">Upload an identity document and run the real backend screening pipeline.</p></div>
@@ -49,4 +125,5 @@ export const NewScreeningScreen: React.FC<Props> = ({ onSaveRecord, onNavigateTo
     </div>
   </div>;
 };
+
 const Metric: React.FC<{ label: string; value: string }> = ({ label, value }) => <div className="bg-[#09090B] border border-[#27272A] rounded p-3"><div className="text-[#71717A] mb-1">{label}</div><div className="text-white font-bold">{value}</div></div>;
