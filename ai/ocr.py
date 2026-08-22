@@ -10,20 +10,17 @@ from typing import Any
 MRZ_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<")
 
 
-def _empty_result(status: str = "failed", raw_text: str = "") -> dict[str, Any]:
+def _empty_result(status: str = "failed") -> dict[str, Any]:
     return {
         "status": status,
         "confidence": 0.0,
         "fields": {},
-        "raw_text": raw_text,
     }
 
 
 def _clean_line(line: str) -> str:
     text = re.sub(r"[^A-Z0-9<]", "", line.upper())
-    # Common OCR substitutions in MRZ text.
-    text = text.replace("«", "<").replace("‹", "<")
-    return text
+    return text.replace("«", "<").replace("‹", "<")
 
 
 def _mrz_score(line: str) -> int:
@@ -34,8 +31,6 @@ def _mrz_score(line: str) -> int:
         score += 5
     if len(line) >= 44:
         score += 5
-    if line[0:2].startswith("P"):
-        score += 2
     if any(ch.isdigit() for ch in line):
         score += 2
     if "<" in line:
@@ -46,8 +41,6 @@ def _mrz_score(line: str) -> int:
 def _normalize_mrz_line(line: str, second_line: bool = False) -> str:
     line = _clean_line(line)
     if second_line:
-        # OCR frequently turns the filler/check characters into letters.
-        # Keep the original shape but normalize obvious position-specific O/I.
         chars = list(line[:44].ljust(44, "<"))
         for i in range(min(9, len(chars))):
             if chars[i] == "O":
@@ -71,7 +64,6 @@ def _parse_mrz(lines: list[str]) -> dict[str, str]:
         if len(line) >= 36 and set(line) <= MRZ_CHARS:
             candidates.append((_mrz_score(line), line))
 
-    # Prefer an adjacent P< first line followed by a long second line.
     pairs: list[tuple[int, str, str]] = []
     for i, first in enumerate(cleaned):
         if not first.startswith("P<"):
@@ -81,7 +73,6 @@ def _parse_mrz(lines: list[str]) -> dict[str, str]:
                 pairs.append((_mrz_score(first) + _mrz_score(second), first, second))
 
     if not pairs:
-        # Fall back to the two strongest long candidates.
         long_lines = sorted(candidates, reverse=True)
         if len(long_lines) >= 2:
             pairs.append((long_lines[0][0] + long_lines[1][0], long_lines[0][1], long_lines[1][1]))
@@ -162,9 +153,9 @@ def _ocr_text(image_path: str | Path) -> tuple[str, float]:
             config=config,
             output_type=pytesseract.Output.DICT,
         )
-
         words: list[str] = []
         local_conf: list[float] = []
+
         for text, raw_conf in zip(data["text"], data["conf"]):
             text = text.strip()
             try:
@@ -210,4 +201,4 @@ def extract_passport(image_path: str | Path) -> dict[str, Any]:
         }
     except Exception as exc:
         print(f"OCR ERROR: {exc}", flush=True)
-        return _empty_result(raw_text="")
+        return _empty_result()
